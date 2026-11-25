@@ -1,0 +1,135 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@inject ApiClient Api
+@using Poc.Web.Services
+
+<PageTitle>POC · Blazor + API</PageTitle>
+
+<main class="shell">
+    <header class="hero">
+        <p class="eyebrow">Personal POC · Blazor Server</p>
+        <h1>GitHub Actions + Terraform</h1>
+        <p class="lede">
+            Same pattern as ECP: a Blazor Server UI that calls the API over HTTP.
+            Goal: deploy FE and BE to Azure with separate pipelines and infrastructure.
+        </p>
+        <p class="meta">API: <code>@apiBase</code></p>
+    </header>
+
+    <section class="panel">
+        <div class="panel-head">
+            <h2>Backend status</h2>
+            <button type="button" class="btn secondary" @onclick="LoadAsync" disabled="@_busy">Refresh</button>
+        </div>
+        @if (_info is null && string.IsNullOrEmpty(_error))
+        {
+            <pre class="code-box">Loading…</pre>
+        }
+        else if (_info is not null)
+        {
+            <pre class="code-box">@_infoJson</pre>
+        }
+    </section>
+
+    <section class="panel">
+        <div class="panel-head">
+            <h2>Messages</h2>
+        </div>
+        <ul class="msg-list">
+            @foreach (var m in _messages)
+            {
+                <li>
+                    <span class="msg-id">#@m.Id</span>
+                    <span>@m.Text</span>
+                    <time>@m.CreatedUtc.ToLocalTime().ToString("g")</time>
+                </li>
+            }
+        </ul>
+
+        <EditForm Model="_form" OnValidSubmit="SendAsync" class="msg-form">
+            <label for="msg-text">New message</label>
+            <div class="row">
+                <InputText id="msg-text" @bind-Value="_form.Text" class="input" maxlength="200" placeholder="Type something…" />
+                <button type="submit" class="btn" disabled="@_busy">Send</button>
+            </div>
+        </EditForm>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <p class="error">@_error</p>
+        }
+    </section>
+</main>
+
+@code {
+    private static readonly System.Text.Json.JsonSerializerOptions JsonDisplayOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    private readonly MessageForm _form = new();
+    private ApiInfo? _info;
+    private string _infoJson = "";
+    private List<MessageDto> _messages = [];
+    private string? _error;
+    private bool _busy;
+    private string apiBase = "";
+
+    [Inject] private IConfiguration Config { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        apiBase = Config["Api:BaseUrl"] ?? "";
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            _info = await Api.GetInfoAsync();
+            _infoJson = _info is null ? "" : System.Text.Json.JsonSerializer.Serialize(_info, JsonDisplayOptions);
+            _messages = await Api.GetMessagesAsync() ?? [];
+        }
+        catch (Exception ex)
+        {
+            _info = null;
+            _infoJson = "";
+            _messages = [];
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_form.Text)) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            await Api.CreateMessageAsync(_form.Text.Trim());
+            _form.Text = "";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private sealed class MessageForm
+    {
+        public string Text { get; set; } = "";
+    }
+}
